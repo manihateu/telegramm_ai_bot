@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ClientProxyFactory, Transport } from '@nestjs/microservices';
-import { CHAT_CLIENT } from './chat-client.constants';
+import { CHAT_CLIENT, PHOTO_CLIENT } from './chat-client.constants';
 import { ChatClientService } from './chat-client.service';
 
 @Module({
@@ -30,8 +30,29 @@ import { ChatClientService } from './chat-client.service';
         });
       },
     },
+    {
+      provide: PHOTO_CLIENT,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const urls = [
+          config.get<string>('RABBITMQ_URL') ?? 'amqp://localhost:5672',
+        ];
+        const queue = config.get<string>('PHOTO_QUEUE') ?? 'photo_rpc';
+
+        return ClientProxyFactory.create({
+          transport: Transport.RMQ,
+          options: {
+            urls,
+            queue,
+            queueOptions: {
+              durable: true,
+            },
+          },
+        });
+      },
+    },
     ChatClientService,
   ],
   exports: [ChatClientService],
 })
-export class ChatClientModule {}
+export class ChatClientModule { }

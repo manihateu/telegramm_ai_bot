@@ -1,26 +1,87 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Ctx, Hears, On, Start, Update } from 'nestjs-telegraf';
+import { Action, Ctx, Hears, On, Start, Update } from 'nestjs-telegraf';
 import type { Context } from 'telegraf';
+import { Markup } from 'telegraf';
 import { ChatClientService } from '../rmq/chat-client.service';
 
 @Update()
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
+  private readonly userStates = new Map<number, 'TEXT' | 'PHOTO'>();
 
-  constructor(private readonly chatClient: ChatClientService) {}
+  constructor(private readonly chatClient: ChatClientService) { }
 
   @Start()
   async onStart(@Ctx() ctx: Context) {
-    await ctx.reply(
-      'Привет! Я бот, который с помощью ChatGPT отвечает на вопросы. Напиши мне что-нибудь.',
+    const caption =
+      'Привет! Я AI-бот. Выбери режим работы:\n\n' +
+      '📝 Текст - общение с ChatGPT\n' +
+      '🎨 Фото - генерация изображений\n' +
+      '🎥 Видео - (в разработке)\n' +
+      '🎵 Аудио - (в разработке)\n' +
+      '📊 Презентация - (в разработке)';
+
+    await ctx.replyWithPhoto(
+      { url: 'https://cdn-icons-png.flaticon.com/512/4712/4712035.png' }, // Placeholder logo
+      {
+        caption,
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('📝 Текст', 'mode_text')],
+          [Markup.button.callback('🎨 Фото', 'mode_photo')],
+          [
+            Markup.button.callback('🎥 Видео', 'mode_video'),
+            Markup.button.callback('🎵 Аудио', 'mode_audio'),
+          ],
+          [Markup.button.callback('📊 Презентация', 'mode_presentation')],
+        ]),
+      },
     );
+  }
+
+  @Action('mode_text')
+  async onModeText(@Ctx() ctx: Context) {
+    if (ctx.chat?.id) {
+      this.userStates.set(ctx.chat.id, 'TEXT');
+      await ctx.reply(
+        'Режим: 📝 Текст. Напиши свой вопрос.',
+        Markup.keyboard([['⬅️ Назад']]).resize(),
+      );
+      await ctx.answerCbQuery();
+    }
+  }
+
+  @Action('mode_photo')
+  async onModePhoto(@Ctx() ctx: Context) {
+    if (ctx.chat?.id) {
+      this.userStates.set(ctx.chat.id, 'PHOTO');
+      await ctx.reply(
+        'Режим: 🎨 Фото. Опиши, что нужно сгенерировать.',
+        Markup.keyboard([['⬅️ Назад']]).resize(),
+      );
+      await ctx.answerCbQuery();
+    }
+  }
+
+  @Hears('⬅️ Назад')
+  async onBack(@Ctx() ctx: Context) {
+    if (ctx.chat?.id) {
+      this.userStates.delete(ctx.chat.id);
+      await ctx.reply('Главное меню', Markup.removeKeyboard());
+      await this.onStart(ctx);
+    }
+  }
+
+  @Action(/mode_(video|audio|presentation)/)
+  async onModeNotImplemented(@Ctx() ctx: Context) {
+    await ctx.reply('Этот режим пока в разработке 🛠');
+    await ctx.answerCbQuery();
   }
 
   @Hears(/\/help/)
   async onHelp(@Ctx() ctx: Context) {
     await ctx.reply(
-      'Просто отправь сообщение, и я спрошу об этом нейросеть. Команда /reset пока не реализована.',
+      'Используй /start для выбора режима. В режиме текста просто пиши вопросы.',
     );
   }
 
@@ -28,25 +89,50 @@ export class TelegramService {
   async onMessage(@Ctx() ctx: Context) {
     const text =
       ctx.message && 'text' in ctx.message ? ctx.message.text.trim() : '';
-    if (!text) {
-      await ctx.reply('Пожалуйста, отправь текстовое сообщение.');
-      return;
-    }
+    if (!text) return;
 
-    try {
-      await ctx.sendChatAction('typing');
-      const response = await this.chatClient.generateReply({
-        chatId: ctx.chat?.id ?? 0,
-        username: ctx.from?.username,
-        prompt: text,
-      });
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
 
-      await ctx.reply(response.answer);
-    } catch (error) {
-      this.logger.error('Failed to process message', error);
-      await ctx.reply(
-        'Не удалось получить ответ от нейросети, попробуй позже.',
-      );
+    const mode = this.userStates.get(chatId) || 'TEXT';
+
+    if (mode === 'PHOTO') {
+      await ctx.reply('🎨 Генерирую изображение... (это может занять время)');
+      try {
+        await ctx.sendChatAction('upload_photo');
+        const response = await this.chatClient.generatePhoto({
+          chatId,
+          username: ctx.from?.username,
+          prompt: text,
+        });
+
+        if (response.imageUrl) {
+          await ctx.replyWithPhoto(response.imageUrl, {
+            caption: `Generated by ${response.model}`,
+          });
+        } else {
+          await ctx.reply('Не удалось получить ссылку на изображение.');
+        }
+      } catch (error) {
+        this.logger.error('Failed to generate photo', error);
+        await ctx.reply('Произошла ошибка при генерации изображения.');
+      }
+    } else {
+      try {
+        await ctx.sendChatAction('typing');
+        const response = await this.chatClient.generateReply({
+          chatId,
+          username: ctx.from?.username,
+          prompt: text,
+        });
+
+        await ctx.reply(response.answer);
+      } catch (error) {
+        this.logger.error('Failed to process message', error);
+        await ctx.reply(
+          'Не удалось получить ответ от нейросети, попробуй позже.',
+        );
+      }
     }
   }
 }

@@ -5,7 +5,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { lastValueFrom, timeout } from 'rxjs';
-import { CHAT_CLIENT, CHAT_RPC_PATTERN } from './chat-client.constants';
+import { CHAT_CLIENT, CHAT_RPC_PATTERN, PHOTO_CLIENT } from './chat-client.constants';
 import type {
   ChatMessageRequest,
   ChatMessageResponse,
@@ -15,7 +15,10 @@ import type {
 export class ChatClientService {
   private readonly logger = new Logger(ChatClientService.name);
 
-  constructor(@Inject(CHAT_CLIENT) private readonly client: ClientProxy) {}
+  constructor(
+    @Inject(CHAT_CLIENT) private readonly client: ClientProxy,
+    @Inject(PHOTO_CLIENT) private readonly photoClient: ClientProxy,
+  ) { }
 
   async generateReply(
     payload: ChatMessageRequest,
@@ -31,6 +34,24 @@ export class ChatClientService {
       return await lastValueFrom(response$);
     } catch (error) {
       this.logger.error('Failed to get response from assistant', error);
+      throw error;
+    }
+  }
+
+  async generatePhoto(
+    payload: ChatMessageRequest,
+  ): Promise<import('../common/dto/chat-message.dto').ChatPhotoResponse> {
+    try {
+      const response$ = this.photoClient
+        .send<
+          import('../common/dto/chat-message.dto').ChatPhotoResponse,
+          import('../common/dto/chat-message.dto').ChatPhotoRequest
+        >('generate_photo', payload)
+        .pipe(timeout(60000));
+
+      return await lastValueFrom(response$);
+    } catch (error) {
+      this.logger.error('Failed to get photo from assistant', error);
       throw error;
     }
   }

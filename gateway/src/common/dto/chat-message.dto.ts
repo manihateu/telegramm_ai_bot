@@ -10,3 +10,14 @@ export interface ChatMessageResponse {
   promptTokens: number;
   completionTokens: number;
 }
+
+export interface ChatPhotoRequest {
+  chatId: number;
+  username?: string;
+  prompt: string;
+}
+
+export interface ChatPhotoResponse {
+  imageUrl: string;
+  model: string;
+}
