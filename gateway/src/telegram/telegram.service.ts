@@ -4,16 +4,29 @@ import type { Context } from 'telegraf';
 import { Markup } from 'telegraf';
 import { ChatClientService } from '../rmq/chat-client.service';
 
+import { UsersService } from '../users/users.service';
+
 @Update()
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
   private readonly userStates = new Map<number, 'TEXT' | 'PHOTO'>();
 
-  constructor(private readonly chatClient: ChatClientService) { }
+  constructor(
+    private readonly chatClient: ChatClientService,
+    private readonly usersService: UsersService,
+  ) { }
 
   @Start()
   async onStart(@Ctx() ctx: Context) {
+    if (ctx.from) {
+      await this.usersService.findOrCreate(
+        ctx.from.id,
+        ctx.from.username,
+        ctx.from.first_name,
+        ctx.from.last_name,
+      );
+    }
     const caption =
       'Привет! Я AI-бот. Выбери режим работы:\n\n' +
       '📝 Текст - общение с ChatGPT\n' +
@@ -93,6 +106,16 @@ export class TelegramService {
 
     const chatId = ctx.chat?.id;
     if (!chatId) return;
+
+    if (ctx.from) {
+      // Ensure user exists (in case they didn't press start or DB was wiped)
+      await this.usersService.findOrCreate(
+        ctx.from.id,
+        ctx.from.username,
+        ctx.from.first_name,
+        ctx.from.last_name,
+      );
+    }
 
     const mode = this.userStates.get(chatId) || 'TEXT';
 

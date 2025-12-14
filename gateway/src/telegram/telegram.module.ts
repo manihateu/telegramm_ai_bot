@@ -3,6 +3,10 @@ import { TelegrafModule } from 'nestjs-telegraf';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TelegramService } from './telegram.service';
 import { ChatClientModule } from '../rmq/chat-client.module';
+import { ChatClientService } from 'src/rmq/chat-client.service';
+import { UsersService } from 'src/users/users.service';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { User } from 'src/users/user.entity';
 
 @Module({
   imports: [
@@ -15,7 +19,8 @@ import { ChatClientModule } from '../rmq/chat-client.module';
         token: config.getOrThrow<string>('TELEGRAM_BOT_TOKEN'),
       }),
     }),
+    TypeOrmModule.forFeature([User]),
   ],
-  providers: [TelegramService],
+  providers: [TelegramService, UsersService],
 })
-export class TelegramModule {}
+export class TelegramModule { }
